@@ -1,0 +1,5 @@
+{
+  "name": "PSX Alpha Engine",
+  "description": "AI-powered analytics engine for the Pakistan Stock Exchange (PSX), providing deep fundamental analysis, valuation metrics, and news impact scoring for retail investors.",
+  "requestFramePermissions": []
+}
