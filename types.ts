@@ -17,6 +17,12 @@ export interface AnalysisSection {
   content: string[];
 }
 
+export interface TopPerformer {
+  ticker: string;
+  name: string;
+  gain: string;
+}
+
 export interface PSXAnalysisResult {
   ticker: string;
   companyName: string;
@@ -40,6 +46,13 @@ export interface PSXAnalysisResult {
   marketCap?: string;
   dividendYield?: string;
   newsImpactScore?: number;
+  // Usage Data
+  usage?: {
+    promptTokens: number;
+    candidatesTokens: number;
+    totalTokens: number;
+    estimatedCostPKR: number;
+  };
 }
 
 export interface LoadingStep {

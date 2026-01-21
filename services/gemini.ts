@@ -1,9 +1,64 @@
 
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { SYSTEM_PROMPT } from "../constants";
-import { PSXAnalysisResult, Verdict, GroundingSource, AnalysisSection } from "../types";
+import { PSXAnalysisResult, Verdict, GroundingSource, AnalysisSection, TopPerformer } from "../types";
 
 const API_KEY = process.env.API_KEY || '';
+
+// Pricing Constants (Gemini Pro Approx)
+const USD_TO_PKR = 280;
+const INPUT_COST_PER_M = 1.25;
+const OUTPUT_COST_PER_M = 5.00;
+
+export const getTopPerformers = async (): Promise<{ list: TopPerformer[], costPKR: number }> => {
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: "Identify the top 20 performing stocks on the Pakistan Stock Exchange (PSX) based on percentage gain over the last 7 trading days. Provide the list in JSON format with fields: ticker, name, and gain (percentage).",
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            performers: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  ticker: { type: Type.STRING },
+                  name: { type: Type.STRING },
+                  gain: { type: Type.STRING }
+                },
+                required: ["ticker", "name", "gain"]
+              }
+            }
+          }
+        }
+      },
+    });
+
+    const data = JSON.parse(response.text || "{}");
+    const usage = response.usageMetadata;
+    let costPKR = 0;
+    
+    if (usage) {
+      const inputCostUSD = (usage.promptTokenCount / 1000000) * INPUT_COST_PER_M;
+      const outputCostUSD = (usage.candidatesTokenCount / 1000000) * OUTPUT_COST_PER_M;
+      costPKR = (inputCostUSD + outputCostUSD) * USD_TO_PKR;
+    }
+
+    return { 
+      list: data.performers || [], 
+      costPKR 
+    };
+  } catch (error) {
+    console.error("Error fetching top performers:", error);
+    return { list: [], costPKR: 0 };
+  }
+};
 
 export const analyzeTicker = async (ticker: string): Promise<PSXAnalysisResult> => {
   const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -22,6 +77,7 @@ export const analyzeTicker = async (ticker: string): Promise<PSXAnalysisResult> 
 
     const text = response.text || "";
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const usage = response.usageMetadata;
     
     const sources: GroundingSource[] = chunks
       .filter(chunk => chunk.web)
@@ -30,7 +86,23 @@ export const analyzeTicker = async (ticker: string): Promise<PSXAnalysisResult> 
         uri: chunk.web?.uri || "",
       }));
 
-    return parseGeminiResponse(text, ticker, sources);
+    const result = parseGeminiResponse(text, ticker, sources);
+
+    // Calculate PKR Cost
+    if (usage) {
+      const inputCostUSD = (usage.promptTokenCount / 1000000) * INPUT_COST_PER_M;
+      const outputCostUSD = (usage.candidatesTokenCount / 1000000) * OUTPUT_COST_PER_M;
+      const totalCostPKR = (inputCostUSD + outputCostUSD) * USD_TO_PKR;
+
+      result.usage = {
+        promptTokens: usage.promptTokenCount,
+        candidatesTokens: usage.candidatesTokenCount,
+        totalTokens: usage.totalTokenCount,
+        estimatedCostPKR: totalCostPKR
+      };
+    }
+
+    return result;
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw new Error("Failed to analyze ticker. Please check your connection or try a different stock.");
